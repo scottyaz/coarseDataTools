@@ -101,13 +101,13 @@ EMforCFR <- function(assumed.nu, alpha.start.values, full.data,
 				var.joint %*% DM %*% solve(diag(1, ncol(DM))-DM)
 			proposed.rel.cfr.var.SEM <- variance.SEM[nrow(DM), nrow(DM)]
 			if(proposed.rel.cfr.var.SEM<0) {
-				proposed.rel.cfr.var.SEM <- NA
+                            proposed.rel.cfr.var.SEM <- NA
 				SEMconv <- 2
 			}
 		} else { proposed.rel.cfr.var.SEM <- NA }
 
 		if(verb){
-			print("Estimate with SEM")
+                    print("Estimate with SEM")
 			print(paste("proposed CFR =", round(proposed.rel.cfr, 3),
 				    "; 95% CI (",
 				    round(exp(log(proposed.rel.cfr)
@@ -155,7 +155,7 @@ EMforCFR <- function(assumed.nu, alpha.start.values, full.data,
 			    round(exp(log(proposed.rel.cfr)
 				      +2*sqrt(out$EM.rel.cfr.var)),3),
 			    ")"))
-	}
+            }
 
 	return(out)
 
@@ -163,15 +163,15 @@ EMforCFR <- function(assumed.nu, alpha.start.values, full.data,
 
 SEM.variance <- function(full.data, dat, phi, max.iter, tol, nlag,
 			 alpha.start.values, assumed.nu){
-	## algorithm parameters
-	eps <- 1
-	iter <- 0
-	phi.hat <- phi ## using phi from notation in Bayesian Data Analysis (Gelman, p323)
-	phi0 <- c(1, alpha.start.values, 1) ## the starting values for the parameters: c(beta0, alpha2-T, gamma2)
-	n.params <- length(phi0)
+    ## algorithm parameters
+    eps <- 1
+    iter <- 0
+    phi.hat <- phi ## using phi from notation in Bayesian Data Analysis (Gelman, p323)
+    phi0 <- c(1, alpha.start.values, 1) ## the starting values for the parameters: c(beta0, alpha2-T, gamma2)
+    n.params <- length(phi0)
 
-	## sequence of matrices which will converge to DM
-	Rt <- array(dim=c(n.params, n.params, max.iter))
+    ## sequence of matrices which will converge to DM
+    Rt <- array(dim=c(n.params, n.params, max.iter))
 	DM <- matrix(nrow=n.params, ncol=n.params)
 	DMiter <- rep(0, n.params)
 
@@ -290,3 +290,4 @@ run.Mstep <- function(dat){
 	out <- list(phi=phi, Var=vcov(fit))
 	return(out)
 }
+

@@ -15,7 +15,8 @@ dic.fit <- function(dat,
 		    opt.method="L-BFGS-B",
 		    mu.int=c(log(.5), log(13)),
 		    log.sigma.int=c(log(log(1.01)), log(log(5))),
-		    ptiles=c(.05, .95, .99),...) {
+		    ptiles=c(.05, .95, .99),
+                    dist="L",...) {
 
 	## check format of dat
 	cnames <- colnames(dat)
@@ -28,28 +29,28 @@ dic.fit <- function(dat,
 	if(!all(dat[,"type"] %in% c(0,1,2)))
 		stop("values in type column must be either 0, 1 or 2.")
 
-	## fix sample size
-	n <- nrow(dat)
+        if(!dist %in% c("G","W","L")) stop("Please use either L,W, or G for the distributions")
+           ## fix sample size
+           n <- nrow(dat)
 
-	## make sure dat is a matrix
-	dat <- as.matrix(dat[,c("EL", "ER", "SL", "SR", "type")])
-	if(class(dat)=="data.frame") stop("dat should be a matrix.")
+           ## make sure dat is a matrix
+           dat <- as.matrix(dat[,c("EL", "ER", "SL", "SR", "type")])
+           if(class(dat)=="data.frame") stop("dat should be a matrix.")
 
-	## find starting values for DIC analysis using profile likelihoods
-	start.mu <- optimize(f=pl.mu, interval=mu.int,
-			     log.sigma=start.log.sigma, dat=dat)$min
-	start.log.sigma <- optimize(f=pl.sigma, interval=log.sigma.int, mu=start.mu,
-				dat=dat)$min
+           ## find starting values for DIC analysis using profile likelihoods
+           start.mu <- optimize(f=pl.mu, interval=mu.int,
+                                log.sigma=start.log.sigma, dat=dat,dist=dist)$min
+           start.log.sigma <- optimize(f=pl.sigma, interval=log.sigma.int, mu=start.mu,
+                                       dat=dat,dist=dist)$min
 
-
-	## find MLEs for doubly censored data using optim
-	tmp <- list(convergence=1)
-	msg <- NULL
-	fail <- FALSE
-	tryCatch(tmp <- optim(par=c(start.mu, start.log.sigma),
-			      method=opt.method, hessian=TRUE,
-			      lower=c(log(0.5), log(log(1.04))),
-			      fn=loglik, dat=dat, ...),
+           ## find MLEs for doubly censored data using optim
+           tmp <- list(convergence=1)
+           msg <- NULL
+           fail <- FALSE
+           tryCatch(tmp <- optim(par=c(start.mu, start.log.sigma),
+                                 method=opt.method, hessian=TRUE,
+                                 lower=c(log(0.5), log(log(1.04))),
+                                 fn=loglik, dat=dat,dist=dist, ...),
 		 error = function(e) {
 			 msg <<- e$message
 			 fail <<- TRUE
@@ -65,18 +66,24 @@ dic.fit <- function(dat,
 		fail <- TRUE
 	}
 
-	if( !fail ){
-		med <- exp(tmp$par[1])
-		disp <- exp(exp(tmp$par[2]))
-		norm.quants <- qnorm(ptiles)
-		ests <- c(med,
-			  disp,
-			  med*disp^norm.quants)
-		Sig <- solve(tmp$hessian)
-		ses <- dic.getSE(log(med), log(log(disp)), Sig, ptiles)
-		cil <- ests - qt(.975, n-1)*ses
-		cih <- ests + qt(.975, n-1)*ses
-
+	if(!fail ){
+                print(tmp$value)
+                cat(sprintf("Loglikelihood = %f",tmp$value))
+                cat(sprintf("Parameter Values = ",tmp$par))
+                if (dist == "L"){
+                    med <- exp(tmp$par[1])
+                    disp <- exp(exp(tmp$par[2]))
+                    norm.quants <- qnorm(ptiles)
+                    ests <- c(med,
+                              disp,
+                              med*disp^norm.quants)
+                    Sig <- solve(tmp$hessian)
+                    ses <- dic.getSE(log(med), log(log(disp)), Sig, ptiles,dist=dist)
+                    cil <- ests - qt(.975, n-1)*ses
+                    cih <- ests + qt(.975, n-1)*ses
+                } else {
+                    ses <- dic.getSE(dat,tmp$par[1], tmp$par[2], Sig=NULL, ptiles,dist=dist)
+                }
 		## save the quantile estimates
 		quant.matrix <- matrix(c(ests, cil, cih, ses),
 				       nrow=2+length(ptiles), byrow=FALSE)
@@ -101,45 +108,54 @@ dic.fit <- function(dat,
 
 
 ## profile likelihood for mu -- used by dic.fit() to get starting values
-pl.mu <- function(mu, log.sigma, dat){
-	loglik(pars=c(mu, log.sigma), dat=dat)
+pl.mu <- function(mu, log.sigma, dat, dist){
+	loglik(pars=c(mu, log.sigma),dist=dist,dat=dat)
 }
 
 
 ## profile likelihood for sigma -- used by dic.fit() to get starting values
-pl.sigma <- function(log.sigma, mu, dat){
-	loglik(pars=c(mu, log.sigma), dat=dat)
+pl.sigma <- function(log.sigma, mu, dat, dist){
+	loglik(pars=c(mu, log.sigma), dist=dist, dat=dat)
 }
-
-
-
 
 ## functions that manipulate/calculate the likelihood for the censored data
 
 ## the functions coded here are taken directly from the
 ## doubly interval censored likelihood notes.
 
-fw1 <- function(t, EL, ER, SL, SR, mu, sigma){
+fw1 <- function(t, EL, ER, SL, SR, mu, sigma, dist){
 	## function that calculates the first function for the DIC integral
-	(ER-SL+t) * dlnorm(x=t, meanlog=mu, sdlog=sigma)
+    if (dist=="W"){
+        (ER-SL+t) * (ER-SL+t) * dweibull(x=t,shape=mu,scale=sigma)
+    } else if (dist=="G") {
+        (ER-SL+t) * dgamma(x=t, shape=mu, scale=sigma)
+    } else {
+        (ER-SL+t) * dlnorm(x=t, meanlog=mu, sdlog=sigma)
+    }
 }
 
-fw3 <- function(t, EL, ER, SL, SR, mu, sigma){
+fw3 <- function(t, EL, ER, SL, SR, mu, sigma, dist){
 	## function that calculates the third function for the DIC integral
-	(SR-EL-t) * dlnorm(x=t, meanlog=mu, sdlog=sigma)
+    if (dist == "W"){
+	(SR-EL-t) * dweibull(x=t, shape=mu, scale=sigma)
+    } else if (dist == "G"){
+    	(SR-EL-t) * dgamma(x=t, shape=mu, scale=sigma)
+    } else {
+        (SR-EL-t) * dlnorm(x=t, meanlog=mu, sdlog=sigma)
+    }
 }
 
 
-lik <- function(mu, sigma, EL, ER, SL, SR, type){
+lik <- function(mu, sigma, EL, ER, SL, SR, type, dist){
 	## returns the right likelihood for the type of data
 	## 0 = DIC, 1=SIC, 2=exact
-	if(type==0) return(diclik2(mu, sigma, EL, ER, SL, SR))
-	if(type==1) return(siclik(mu, sigma, EL, ER, SL, SR))
-	if(type==2) return(exactlik(mu, sigma, EL, ER, SL, SR))
+	if(type==0) return(diclik2(mu, sigma, EL, ER, SL, SR, dist))
+	if(type==1) return(siclik(mu, sigma, EL, ER, SL, SR, dist))
+	if(type==2) return(exactlik(mu, sigma, EL, ER, SL, SR, dist))
 }
 
 
-diclik <- function(mu, sigma, EL, ER, SL, SR){
+diclik <- function(mu, sigma, EL, ER, SL, SR, dist){
 	## calculates the DIC likelihood by integration
 
 	## if symptom window is bigger than exposure window
@@ -147,83 +163,125 @@ diclik <- function(mu, sigma, EL, ER, SL, SR){
 		dic1 <- integrate(fw1, lower=SL-ER, upper=SL-EL,
 				  subdivisions=10,
 				  mu=mu, sigma=sigma,
-				  EL=EL, ER=ER, SL=SL, SR=SR)$value
-		dic2 <- (ER-EL)*
-			(plnorm(SR-ER, mu, sigma) - plnorm(SL-EL, mu, sigma))
+				  EL=EL, ER=ER, SL=SL, SR=SR,
+                                  dist=dist)$value
+                if (dist == "W"){
+                    dic2 <- (ER-EL)*
+                        (pweibull(SR-ER, shape=mu, scale=sigma) - pweibull(SL-EL, shape=mu, scale=sigma))
+                } else if (dist == "G"){
+                    dic2 <- (ER-EL)*
+                        (pgamma(SR-ER, shape=mu, scale=sigma) - pgamma(SL-EL, shape=mu, scale=sigma))
+                } else {
+                    dic2 <- (ER-EL)*
+                        (plnorm(SR-ER, mu, sigma) - plnorm(SL-EL, mu, sigma))
+                }
 		dic3 <- integrate(fw3, lower=SR-ER, upper=SR-EL,
 				  subdivisions=10,
 				  mu=mu, sigma=sigma,
-				  EL=EL, ER=ER, SL=SL, SR=SR)$value
+				  EL=EL, ER=ER, SL=SL, SR=SR,
+                                  dist=dist)$value
 		return(dic1 + dic2 + dic3)
 	}
 
 	## if exposure window is bigger than symptom window
 	else{
-		dic1 <- integrate(fw1, lower=SL-ER, upper=SR-ER,
-				  subdivisions=10,
-				  mu=mu, sigma=sigma,
-				  EL=EL, ER=ER, SL=SL, SR=SR)$value
+            dic1 <- integrate(fw1, lower=SL-ER, upper=SR-ER,
+                              subdivisions=10,
+                              mu=mu, sigma=sigma,
+                              EL=EL, ER=ER, SL=SL, SR=SR,
+                              dist=dist)$value
+            if (dist == "W"){
 		dic2 <- (SR-SL)*
-			(plnorm(SL-EL, mu, sigma) - plnorm(SR-ER, mu, sigma))
+                    (pweibull(SL-EL, shape=mu, scale=sigma) - pweibull(SR-ER, shape=mu, scale=sigma))
+            } else if (dist == "G"){
+                dic2 <- (SR-SL)*
+                    (pgamma(SL-EL, shape=mu, scale=sigma) - pgamma(SR-ER, shape=mu, scale=sigma))
+            } else {
+                dic2 <- (SR-SL)*
+                    (plnorm(SL-EL, mu, sigma) - plnorm(SR-ER, mu, sigma))
+            }
 		dic3 <- integrate(fw3, lower=SL-EL, upper=SR-EL,
 				  subdivisions=10,
 				  mu=mu, sigma=sigma,
-				  EL=EL, ER=ER, SL=SL, SR=SR)$value
+				  EL=EL, ER=ER, SL=SL, SR=SR,
+                                  dist=dist)$value
 		return(dic1 + dic2 + dic3)
-
 	}
-}
+    }
 
 ## this dic likelihood is designed for data that has overlapping intervals
-diclik2 <- function(mu, sigma, EL, ER, SL, SR){
+diclik2 <- function(mu, sigma, EL, ER, SL, SR, dist){
 	if(SL>ER) {
-		return(diclik(mu, sigma, EL, ER, SL, SR))
+		return(diclik(mu, sigma, EL, ER, SL, SR, dist))
 	} else {
 		lik1 <- integrate(diclik2.helper1, lower=EL, upper=SL,
-				  SL=SL, SR=SR, mu=mu, sigma=sigma)$value
+				  SL=SL, SR=SR, mu=mu, sigma=sigma, dist=dist)$value
 		lik2 <- integrate(diclik2.helper2, lower=SL, upper=ER,
-				  SR=SR, mu=mu, sigma=sigma)$value
+				  SR=SR, mu=mu, sigma=sigma, dist=dist)$value
 		return(lik1+lik2)
 	}
 }
 
 ## likelihood functions for diclik2
-diclik2.helper1 <- function(x, SL, SR, mu, sigma){
-	plnorm(SR-x, mu, sigma) - plnorm(SL-x, mu, sigma)
+diclik2.helper1 <- function(x, SL, SR, mu, sigma, dist){
+    if (dist =="W"){
+        pweibull(SR-x, shape=mu, scale=sigma) - pweibull(SL-x, shape=mu, scale=sigma)
+    } else if (dist =="G") {
+        pgamma(SR-x, shape=mu, scale=sigma) - pgamma(SL-x, shape=mu, scale=sigma)
+    } else {
+        plnorm(SR-x, mu, sigma) - plnorm(SL-x, mu, sigma)
+    }
 }
 
-diclik2.helper2 <- function(x, SR, mu, sigma){
+diclik2.helper2 <- function(x, SR, mu, sigma, dist){
+    if (dist =="W"){
+        pweibull(SR-x, shape=mu, scale=sigma)
+    } else if (dist =="G") {
+        pgamma(SR-x, shape=mu, scale=sigma)
+    } else {
 	plnorm(SR-x, mu, sigma)
+    }
 }
 
-
-
-siclik <- function(mu, sigma, EL, ER, SL, SR){
+siclik <- function(mu, sigma, EL, ER, SL, SR, dist){
 	## calculates the SIC likelihood as the difference in CDFs
-	plnorm(SR-EL, mu, sigma) - plnorm(SL-ER, mu, sigma)
+    if (dist =="W"){
+        pweibull(SR-EL, shape=mu, scale=sigma) - pweibull(SL-EL, shape=mu, scale=sigma)
+    } else if (dist =="G") {
+        pgamma(SR-EL, shape=mu, scale=sigma) - pgamma(SL-EL, shape=mu, scale=sigma)
+    } else {
+        plnorm(SR-EL, mu, sigma) - plnorm(SL-ER, mu, sigma)
+    }
 }
 
-exactlik <- function(mu, sigma, EL, ER, SL, SR){
+exactlik <- function(mu, sigma, EL, ER, SL, SR, dist){
 	## calculates the likelihood for an exact observation
 
 	## NB: the two Ss should be equal and the two Es should be equal
 	##     so it doesn't matter which pair we use in the formula below.
-	dlnorm(SR-EL, mu, sigma)
+    if (dist =="W"){
+        dweibull(SR-EL, shape=mu, scale=sigma)
+    } else if (dist =="G") {
+        dgamma(SR-EL, shape=mu, scale=sigma)
+    } else {
+        dlnorm(SR-EL, mu, sigma)
+    }
 }
 
-loglik <- function(pars, dat) {
+loglik <- function(pars, dat, dist) {
 	## calculates the log-likelihood of DIC data
 	## dat must have EL, ER, SL, SR and type columns
 	mu <- pars[1]
 	sigma <- exp(pars[2])
-#	print(c(mu, sigma))  ## for debugging
+	sprintf("mu = %.2f, sigma = %.2f",mu, sigma)  ## for debugging
 	n <- nrow(dat)
 	totlik <- 0
 	for(i in 1:n){
 		totlik <- totlik +
 			log(lik(mu, sigma, type=dat[i,"type"],
 				EL=dat[i,"EL"], ER=dat[i,"ER"],
-				SL=dat[i,"SL"], SR=dat[i,"SR"]))
+				SL=dat[i,"SL"], SR=dat[i,"SR"],
+                                dist=dist))
 
 	}
 	return(-totlik) ## NB: NEEDS TO BE -totlik IF WE ARE MAXIMIZING USING OPTIM!
@@ -231,27 +289,47 @@ loglik <- function(pars, dat) {
 
 
 ## calculates the standard errors for estimates from dic.fit() using delta method
-dic.getSE <- function(mu, log.s, Sig, ptiles){
-	s <- exp(log.s)
-	qnorms <- qnorm(ptiles)
-	df <- matrix(c(exp(mu), 0, exp(mu+qnorms*s),
-		       0, exp(s+log.s), qnorms * exp(mu + qnorms*s + log.s)),
-		     nrow=2, ncol=2+length(ptiles), byrow=TRUE)
-	ses <- sqrt(diag(t(df)%*%Sig%*%df))
-	return(ses)
-}
+        dic.getSE <- function(mu, log.s, Sig, ptiles, dist,...){
+            n.boots <- 1000
+            boots <- vector("list",n.boots)
+            if (dist == "L") {
+                cat(sprintf("Asymtotic Confidence Intervals for Log Normal"))
+            s <- exp(log.s)
+            qnorms <- qnorm(ptiles)
+            df <- matrix(c(exp(mu), 0, exp(mu+qnorms*s),
+                           0, exp(s+log.s), qnorms * exp(mu + qnorms*s + log.s)),
+                         nrow=2, ncol=2+length(ptiles), byrow=TRUE)
+            ses <- sqrt(diag(t(df)%*%Sig%*%df))
+           } else if (dist== "W"){
+               cat(sprintf("Bootstrapping (n=1000) Standard Errors for Weibull"))
+               #draw line numbers for 1000 new data sets
+               line.nums <- matrix(sample(1:nrow(dat),nrow(dat)*n.boots,replace=T),nrow=nrow(dat),ncol=n.boots)
+               for (i in 1:n.boots){
+                   boots[[i]] <- dic.fit(dat=dat[line.nums[,i],],
+                                         start.log.sigma=log.s,
+                                         mu.int=c(mu/4,mu*4),
+                                         log.sigma.int=c(log.s/4,log.s*4),
+                                         ptiles=ptiles,
+                                         dist=dist)
+               }
+           } else if (dist == "G"){
+               cat(sprintf("Bootstrapping (n=1000) Standard Errors for Gamma"))
+
+           }
+            return(ses)
+        }
 
 
-get.obs.type <- function(dat) {
-    type <- rep(0, nrow(dat))
+        get.obs.type <- function(dat) {
+            type <- rep(0, nrow(dat))
 
-    #get the single interval censored
-    type[dat[,"EL"]==dat[,"ER"]]<-1
-    type[dat[,"SL"]==dat[,"SR"]]<-1
-    type[dat[,"ER"]>=dat[,"SL"]]<-1
+                                        #get the single interval censored
+            type[dat[,"EL"]==dat[,"ER"]]<-1
+            type[dat[,"SL"]==dat[,"SR"]]<-1
+            type[dat[,"ER"]>=dat[,"SL"]]<-1
 
-    #some of those are actually exact!
-    type[(dat[,"EL"]==dat[,"ER"]) & (dat[,"SL"]==dat[,"SR"])]<- 2
+                                        #some of those are actually exact!
+            type[(dat[,"EL"]==dat[,"ER"]) & (dat[,"SL"]==dat[,"SR"])]<- 2
 
-    return(type)
-}
+            return(type)
+        }
