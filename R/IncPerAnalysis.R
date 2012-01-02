@@ -67,9 +67,8 @@ dic.fit <- function(dat,
 	}
 
 	if(!fail ){
-                print(tmp$value)
-                cat(sprintf("Loglikelihood = %f",tmp$value))
-                cat(sprintf("Parameter Values = ",tmp$par))
+                cat(sprintf("Loglikelihood = %f \n",tmp$value))
+                cat(sprintf("Parameter Values = %f \n ",tmp$par))
                 if (dist == "L"){
                     med <- exp(tmp$par[1])
                     disp <- exp(exp(tmp$par[2]))
@@ -82,7 +81,7 @@ dic.fit <- function(dat,
                     cil <- ests - qt(.975, n-1)*ses
                     cih <- ests + qt(.975, n-1)*ses
                 } else {
-                    ses <- dic.getSE(dat,tmp$par[1], tmp$par[2], Sig=NULL, ptiles,dist=dist)
+                    ses <- dic.getSE(dat=dat,mu=tmp$par[1],log.s=tmp$par[2], Sig=NULL, ptiles=ptiles,dist=dist,opt.method=opt.method)
                 }
 		## save the quantile estimates
 		quant.matrix <- matrix(c(ests, cil, cih, ses),
@@ -289,7 +288,7 @@ loglik <- function(pars, dat, dist) {
 
 
 ## calculates the standard errors for estimates from dic.fit() using delta method
-        dic.getSE <- function(mu, log.s, Sig, ptiles, dist,...){
+        dic.getSE <- function(mu, log.s, Sig, ptiles, dist,dat=dat,opt.method){
             n.boots <- 1000
             boots <- vector("list",n.boots)
             if (dist == "L") {
@@ -300,25 +299,46 @@ loglik <- function(pars, dat, dist) {
                            0, exp(s+log.s), qnorms * exp(mu + qnorms*s + log.s)),
                          nrow=2, ncol=2+length(ptiles), byrow=TRUE)
             ses <- sqrt(diag(t(df)%*%Sig%*%df))
-           } else if (dist== "W"){
-               cat(sprintf("Bootstrapping (n=1000) Standard Errors for Weibull"))
+           } else {
+               cat(sprintf("Bootstrapping (n=1000) Standard Errors for %s \n",dist))
                #draw line numbers for 1000 new data sets
                line.nums <- matrix(sample(1:nrow(dat),nrow(dat)*n.boots,replace=T),nrow=nrow(dat),ncol=n.boots)
                for (i in 1:n.boots){
-                   boots[[i]] <- dic.fit(dat=dat[line.nums[,i],],
-                                         start.log.sigma=log.s,
-                                         mu.int=c(mu/4,mu*4),
-                                         log.sigma.int=c(log.s/4,log.s*4),
-                                         ptiles=ptiles,
-                                         dist=dist)
+                   if (i %% 5 == 0) cat(".")
+                   boots[[i]] <-
+                       single.boot(mu.s=mu,log.s.s=log.s,opt.method=opt.method,dat.tmp=dat[line.nums[,i],],dist=dist)
                }
-           } else if (dist == "G"){
-               cat(sprintf("Bootstrapping (n=1000) Standard Errors for Gamma"))
-
            }
             return(ses)
         }
 
+#estimates one set of parameters for bootstraps
+single.boot <- function(mu.s,log.s.s,opt.method,dat.tmp,dist,...){
+    ## tmp <- list(convergence=1)
+    ## msg <- NULL
+    ## fail <- FALSE
+#    tryCatch(
+             tmp <- optim(par=c(mu.s,log.s.s),
+                          method=opt.method, hessian=FALSE,
+                          lower=c(-10,-10),
+                          fn=loglik, dat=dat.tmp,dist=dist, ...)
+    ## ,
+    ##          error = function(e) {
+    ##              msg <- e$message
+    ##              fail <- TRUE
+    ##          },
+    ##          warning = function(w){
+    ##              msg <- w$message
+    ##              fail <- TRUE
+    ##          })
+    ## also, to catch a few more errors
+                    ##     if(tmp$convergence!=0 | all(tmp$hessian==0) ){
+                    ##         msg <- tmp$message
+                    ##         if(all(tmp$hessian==0)) msg <- paste(msg, "& hessian is singular")
+                    ##         fail <- TRUE
+                    ## }
+    return(tmp)
+}
 
         get.obs.type <- function(dat) {
             type <- rep(0, nrow(dat))
