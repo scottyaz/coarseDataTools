@@ -34,12 +34,27 @@ dic.fit.mcmc <- function(dat,
                          dat,
                          par.prior.mu,
                          par.prior.sd,dist) {
-        ll <- tryCatch(-loglik(pars,dat,dist)+
-                       sum(dnorm(pars, par.prior.mu, par.prior.sd, log=T)),
-                       error=function(e) {
-                           warning("Loglik failure, returning -Inf")
-                           return(-Inf)
-                       })
+        if (dist == "L"){
+            ll <- tryCatch(-loglik(pars,dat,dist)+
+                           sum(dnorm(pars, par.prior.mu, par.prior.sd, log=T))),
+                           error=function(e) {
+                               warning("Loglik failure, returning -Inf")
+                               return(-Inf)
+                           })
+        } else if (dist == "W"){
+            ll <- tryCatch(-loglik(pars,dat,dist) +
+                           dnorm(pars[1], par.prior.mu[1], par.prior.sd[1], log=T) +
+                           dgamma(pars[2],par.prior.mu[2],par.prior.sd[2],log=T)),
+                           error=function(e) {
+                               warning("Loglik failure, returning -Inf")
+                               return(-Inf)
+                           })
+            #use normal prior on shape and gamma on scale
+        } else if (dist == "G"){
+            #
+        } else {
+            stop("Unknown Distribution")
+        }
 
         return(ll)
     }

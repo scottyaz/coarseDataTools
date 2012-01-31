@@ -10,8 +10,8 @@
 ##    dist =
 ##    boot.strap.ci = 1 to use bootstrap standard errors (optional n.boots added to specify number of bootstrap resamples)
 ## n.boots = number of bootstrap resamples if non-log normal model
+##bayesian = if yes, estimates paramters with a Bayesian model using non-informative priors (for log-normal model only)
 ##    ... = additional options passed to optim
-
 
 dic.fit <- function(dat,
 		    start.log.sigma=log(log(2)),
@@ -21,59 +21,93 @@ dic.fit <- function(dat,
 		    ptiles=c(.05, .95, .99),
                     dist="L",
                     n.boots=1000,
+                    bayesian=FALSE,
                     ...) {
 
-	## check format of dat
-	cnames <- colnames(dat)
-	if(!("EL" %in% cnames)) stop("dat must have column named EL")
-	if(!("ER" %in% cnames)) stop("dat must have column named ER")
-	if(!("SL" %in% cnames)) stop("dat must have column named SL")
-	if(!("SR" %in% cnames)) stop("dat must have column named SR")
+    ## check format of dat
+    cnames <- colnames(dat)
+    if(!("EL" %in% cnames)) stop("dat must have column named EL")
+    if(!("ER" %in% cnames)) stop("dat must have column named ER")
+    if(!("SL" %in% cnames)) stop("dat must have column named SL")
+    if(!("SR" %in% cnames)) stop("dat must have column named SR")
 
-	if(!("type" %in% cnames)) stop("dat must have column named type")
-	if(!all(dat[,"type"] %in% c(0,1,2)))
-		stop("values in type column must be either 0, 1 or 2.")
+    if(!("type" %in% cnames)) stop("dat must have column named type")
+    if(!all(dat[,"type"] %in% c(0,1,2)))
+        stop("values in type column must be either 0, 1 or 2.")
 
-        if(!dist %in% c("G","W","L")) stop("Please use one of the following distributions Log-Normal (L) , Weibull (W), or Gamma (G)")
-        ## fix sample size
-        n <- nrow(dat)
+#    if(bayesian == TRUE & dist != "L") stop("Bayesian analysis only available for Log-Normal model at the moment")
 
-        ## make sure dat is a matrix
-        dat <- as.matrix(dat[,c("EL", "ER", "SL", "SR", "type")])
-        if(class(dat)=="data.frame") stop("dat should be a matrix.")
+    if(!dist %in% c("G","W","L")) stop("Please use one of the following distributions Log-Normal (L) , Weibull (W), or Gamma (G)")
+    ## fix sample size
+    n <- nrow(dat)
 
-        ## find starting values for DIC analysis using profile likelihoods
-        start.mu <- optimize(f=pl.mu, interval=mu.int,
-                             log.sigma=start.log.sigma, dat=dat,dist=dist)$min
-        start.log.sigma <- optimize(f=pl.sigma, interval=log.sigma.int, mu=start.mu,
-                                       dat=dat,dist=dist)$min
+    ## make sure dat is a matrix
+    dat <- as.matrix(dat[,c("EL", "ER", "SL", "SR", "type")])
+    if(class(dat)=="data.frame") stop("dat should be a matrix.")
 
-        ## find MLEs for doubly censored data using optim
-        tmp <- list(convergence=1)
-        msg <- NULL
-        fail <- FALSE
-        tryCatch(tmp <- optim(par=c(start.mu, start.log.sigma),
-                              method=opt.method, hessian=TRUE,
-                              lower=c(log(0.5), log(log(1.04))),
-                              fn=loglik, dat=dat,dist=dist, ...),
-		 error = function(e) {
+    ## find starting values for DIC analysis using profile likelihoods
+    start.mu <- optimize(f=pl.mu, interval=mu.int,
+                         log.sigma=start.log.sigma, dat=dat,dist=dist)$min
+    start.log.sigma <- optimize(f=pl.sigma, interval=log.sigma.int, mu=start.mu,
+                                dat=dat,dist=dist)$min
+
+    ## find MLEs for doubly censored data using optim
+    tmp <- list(convergence=1)
+    msg <- NULL
+    fail <- FALSE
+    if (bayesian == TRUE){
+#        source("BayesianDIC.R")
+        cat(sprintf("Running MCMCs to get Bayesian estimates \n"))
+        tryCatch(tmp <- dic.fit.mcmc(dat=dat,
+                                     ptiles=ptiles,
+                                     ...),
+                 error = function(e) {
                      msg <<- e$message
                      fail <<- TRUE
-		 },
-		 warning = function(w){
+                 },
+                 warning = function(w){
+                         msg <<- w$message
+                         fail <<- TRUE
+                     })
+        if (!fail){
+            return(list(ests=round(tmp$est, 3),
+                        conv=1,
+                        MSG=NULL,
+                        Sig.log.scale=NULL,
+                        loglik=NULL,
+                        dist=dist,
+                        mcmc=mcmc.res))
+        } else {
+            return(list(ests=matrix(NA, nrow=5, ncol=4),
+                        conv=0,
+                        MSG=msg,
+                        Sig.log.scale=NULL,
+                        loglik=NULL,
+                        dist=NULL))
+
+    }} else {
+        tryCatch(tmp <- optim(par=c(start.mu, start.log.sigma),
+                          method=opt.method, hessian=TRUE,
+                              lower=c(log(0.5), log(log(1.04))),
+                              fn=loglik, dat=dat,dist=dist, ...),
+                 error = function(e) {
+                 msg <<- e$message
+                 fail <<- TRUE
+             },
+                 warning = function(w){
                      msg <<- w$message
                      fail <<- TRUE
-		 })
+                 })
 	## also, to catch a few more errors
-	if(tmp$convergence!=0 | all(tmp$hessian==0) ){
+        if(tmp$convergence!=0 | all(tmp$hessian==0) ){
             msg <- tmp$message
             if(all(tmp$hessian==0)) msg <- paste(msg, "& hessian is singular")
             fail <- TRUE
 	}
 
-	if(!fail ){
+    if(!fail){
 
-            if (dist == "L"){
+        if (dist == "L"){
                 med <- exp(tmp$par[1])
                 disp <- exp(exp(tmp$par[2]))
                 norm.quants <- qnorm(ptiles)
@@ -133,6 +167,7 @@ dic.fit <- function(dat,
                             dist=NULL))
             }
     }
+}
 
 
 ## profile likelihood for mu -- used by dic.fit() to get starting values
