@@ -1,0 +1,79 @@
+#Bayesian version of Log-normal model
+#Fits the distribution to the passed in data using MCMC
+#as implemented in MCMCpack asssuming lognormal prior for the median
+#and log-log normal prior for the dispersion.
+##
+#Parameters -
+#   dat - the data
+#   par.prior.mu - the mean for the prior distribution for the parameters
+#      a vector of [log median, log log dispersion]
+#   par.prior.sd - vector of standard deviations for the prior on the log
+#     scale
+#   init.pars - the initial parameters, defaults to par.prior.mu
+#   ptiles - what percentiles of the incubation period to return estimates for
+#   ... - additional parameters to MCMCmetrop1R
+#
+#Returns -
+#  A list with the following elements:
+#  ests - a matrix of estimates with columns est (e.g., the median estimate),
+#    CIlow (0.025 quantile) and CIhigh (0.975 quantile)
+#  mcmc - an mcmc object as defined in MCMC pack containing the posterior
+#    samples
+dic.fit.mcmc <- function(dat,
+                         par.prior.mu = c(0,0),
+                         par.prior.sd = c(100,100),
+                         init.pars = par.prior.mu,
+                         ptiles = c(0.05,0.95,0.99),
+                         verbose=1000, #how often to print update
+                         ...) {
+
+    require(MCMCpack)
+
+    #log liklihood function to pass to MCMCpack sampler
+    local.ll <- function(pars,
+                         dat,
+                         par.prior.mu,
+                         par.prior.sd,dist) {
+        ll <- tryCatch(-loglik(pars,dat,dist)+
+                       sum(dnorm(pars, par.prior.mu, par.prior.sd, log=T)),
+                       error=function(e) {
+                           warning("Loglik failure, returning -Inf")
+                           return(-Inf)
+                       })
+
+        return(ll)
+    }
+
+
+    #run the MCMC chains
+    mcmc.res <- MCMCmetrop1R(local.ll,
+                             init.pars,
+                             dat = dat,
+                             par.prior.mu = par.prior.mu,
+                             par.prior.sd = par.prior.sd,
+                             verbose=verbose,
+                             dist="L",
+                             ...)
+
+
+    #make the return matrix
+    est.pars <- matrix(nrow=length(ptiles)+2,
+                       ncol=3)
+    colnames(est.pars) <- c("est","CIlow", "CIhigh")
+    rownames(est.pars) <- c("m", "disp", sprintf("p%d", 100*ptiles))
+
+    est.pars[1,] <- quantile(exp(mcmc.res[,1]), c(.5,.025,.975))
+    est.pars[2,] <- quantile(exp(exp(mcmc.res[,2])), c(.5,.025,.975))
+
+    #make sure at least one ptile was requested
+    if (length(ptiles)>0) {
+        for (i in 1:length(ptiles)) {
+            est.pars[i+2,] <-
+                quantile(qlnorm(ptiles[i],mcmc.res[,1], exp(mcmc.res[,2])),
+                         c(0.5, 0.025, 0.975))
+        }
+    }
+
+    return(list(ests=est.pars, mcmc=mcmc.res))
+
+}
