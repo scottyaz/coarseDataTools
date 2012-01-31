@@ -93,13 +93,15 @@ dic.fit <- function(dat,
 		return(list(ests=round(quant.matrix, 3),
 			    conv=1,
 			    MSG=NULL,
-			    Sig.log.scale=Sig))
+			    Sig.log.scale=Sig,
+                            loglik=tmp$value))
 	}
 	else {
 		return(list(ests=matrix(NA, nrow=5, ncol=4),
 			    conv=0,
 			    MSG=msg,
-			    Sig.log.scale=NULL))
+			    Sig.log.scale=NULL,
+                            loglik=NULL))
 	}
 
 
