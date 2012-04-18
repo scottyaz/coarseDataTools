@@ -76,7 +76,7 @@ dic.fit <- function(dat,
                         Sig.log.scale=NULL,
                         loglik=NULL,
                         dist=dist,
-                        mcmc=mcmc.res))
+                        mcmc=mcmc))
         } else {
             return(list(ests=matrix(NA, nrow=5, ncol=4),
                         conv=0,
@@ -155,7 +155,7 @@ dic.fit <- function(dat,
                         conv=1,
                         MSG=NULL,
                         Sig.log.scale=Sig,
-                        loglik=tmp$value,
+                        loglik=-tmp$value,
                         dist=dist))
 	}
 	else {

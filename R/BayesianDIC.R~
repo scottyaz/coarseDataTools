@@ -1,8 +1,8 @@
-#Bayesian version of Log-normal model
-#Fits the distribution to the passed in data using MCMC
-#as implemented in MCMCpack asssuming lognormal prior for the median
-#and log-log normal prior for the dispersion.
-##
+##Bayesian version of Log-normal DIC model
+##Fits the distribution to the passed in data using MCMC
+##as implemented in MCMCpack asssuming lognormal prior for the median
+##and log-log normal prior for the dispersion.
+#
 #Parameters -
 #   dat - the data
 #   par.prior.mu - the mean for the prior distribution for the parameters
@@ -33,28 +33,13 @@ dic.fit.mcmc <- function(dat,
     local.ll <- function(pars,
                          dat,
                          par.prior.mu,
-                         par.prior.sd,dist) {
-        if (dist == "L"){
-            ll <- tryCatch(-loglik(pars,dat,dist)+
-                           sum(dnorm(pars, par.prior.mu, par.prior.sd, log=T)),
-                           error=function(e) {
-                               warning("Loglik failure, returning -Inf")
-                               return(-Inf)
-                           })
-        } else if (dist == "W"){
-            ll <- tryCatch(-loglik(pars,dat,dist) +
-                           dnorm(pars[1], par.prior.mu[1], par.prior.sd[1], log=T) +
-                           dgamma(pars[2],par.prior.mu[2],par.prior.sd[2],log=T),
-                           error=function(e) {
-                               warning("Loglik failure, returning -Inf")
-                               return(-Inf)
-                           })
-            #use normal prior on shape and gamma on scale
-        } else if (dist == "G"){
-            #
-        } else {
-            stop("Unknown Distribution")
-        }
+                         par.prior.sd) {
+        ll <- tryCatch(-loglik(pars,dat)+
+                       sum(dnorm(pars, par.prior.mu, par.prior.sd, log=T)),
+                       error=function(e) {
+                           warning("Loglik failure, returning -Inf")
+                           return(-Inf)
+                       })
 
         return(ll)
     }
@@ -67,7 +52,6 @@ dic.fit.mcmc <- function(dat,
                              par.prior.mu = par.prior.mu,
                              par.prior.sd = par.prior.sd,
                              verbose=verbose,
-                             dist="L",
                              ...)
 
 
@@ -92,4 +76,3 @@ dic.fit.mcmc <- function(dat,
     return(list(ests=est.pars, mcmc=mcmc.res))
 
 }
-
