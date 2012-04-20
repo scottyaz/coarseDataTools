@@ -7,7 +7,8 @@
 ##    start.log.sigma = the log-log-scale starting value for the dispersion
 ##    mu.int = the log-scale interval of possible median values (in days)
 ##    log.sigma.int = the log-log-scale interval of possible dispersion values
-##    dist =
+##    dist = what distribution to use. Default "L" for log-normal. "G" for gamma, and "W" for weibull
+##    If dist is Gamma (G) or Weibull (W), the mu refers to the shape and sigma refers to the scale param.
 ##    boot.strap.ci = 1 to use bootstrap standard errors (optional n.boots added to specify number of bootstrap resamples)
 ## n.boots = number of bootstrap resamples if non-log normal model
 ##bayesian = if yes, estimates paramters with a Bayesian model using non-informative priors (for log-normal model only)
@@ -20,7 +21,7 @@ dic.fit <- function(dat,
 		    log.sigma.int=c(log(log(1.01)), log(log(5))),
 		    ptiles=c(.05, .95, .99),
                     dist="L",
-                    n.boots=1000,
+                    n.boots=100,
                     bayesian=FALSE,
                     ...) {
 
@@ -189,7 +190,7 @@ pl.sigma <- function(log.sigma, mu, dat, dist){
 fw1 <- function(t, EL, ER, SL, SR, mu, sigma, dist){
     ## function that calculates the first function for the DIC integral
     if (dist=="W"){
-        (ER-SL+t) * (ER-SL+t) * dweibull(x=t,shape=mu,scale=sigma)
+        (ER-SL+t) * dweibull(x=t,shape=mu,scale=sigma)
     } else if (dist=="G") {
         (ER-SL+t) * dgamma(x=t, shape=mu, scale=sigma)
     } else {
@@ -309,9 +310,9 @@ diclik2.helper2 <- function(x, SR, mu, sigma, dist){
 siclik <- function(mu, sigma, EL, ER, SL, SR, dist){
     ## calculates the SIC likelihood as the difference in CDFs
     if (dist =="W"){
-        pweibull(SR-EL, shape=mu, scale=sigma) - pweibull(SL-EL, shape=mu, scale=sigma)
+        pweibull(SR-EL, shape=mu, scale=sigma) - pweibull(SL-ER, shape=mu, scale=sigma)
     } else if (dist =="G") {
-        pgamma(SR-EL, shape=mu, scale=sigma) - pgamma(SL-EL, shape=mu, scale=sigma)
+        pgamma(SR-EL, shape=mu, scale=sigma) - pgamma(SL-ER, shape=mu, scale=sigma)
     } else {
         plnorm(SR-EL, mu, sigma) - plnorm(SL-ER, mu, sigma)
     }
@@ -345,7 +346,6 @@ loglik <- function(pars, dat, dist) {
                     EL=dat[i,"EL"], ER=dat[i,"ER"],
                     SL=dat[i,"SL"], SR=dat[i,"SR"],
                     dist=dist))
-
     }
 	return(-totlik) ## NB: NEEDS TO BE -totlik IF WE ARE MAXIMIZING USING OPTIM!
 }
